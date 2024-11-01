@@ -1,0 +1,161 @@
+import random
+import threading
+import time
+import json
+
+
+class Game:
+    def __init__(self, config):
+        self.rooms = config['rooms']
+        self.monster_sleep_time = config['monster_sleep_time']
+        self.lives = config['lives']
+        self.current_room = 0
+        self.monster_awake = False
+        self.monster_room = 0
+        self.game_log = []
+        self.checked_rooms = [False] * self.rooms
+        self.keys_found = [False] * self.rooms
+        self.commode_checked = [False] * self.rooms
+        self.items_checked = [False] * self.rooms
+        self.has_key = False
+        self.has_gun = False
+        self.monster_thread = threading.Thread(target=self.monster_activity)
+        self.log_thread = threading.Thread(target=self.log_events)
+
+    def monster_activity(self):
+        while self.lives > 0:
+            time.sleep(self.monster_sleep_time)
+            self.monster_awake = True
+            self.monster_room = random.randint(0, self.rooms - 1)
+            self.log_event("The monster has awakened and moved to room {}".format(self.monster_room + 1))
+            time.sleep(5)
+            self.monster_awake = False
+            self.log_event("The monster has fallen asleep again!")
+
+    def log_events(self):
+        with open('game_log.txt', 'w', encoding='utf-8') as log_file:
+            while self.lives > 0:
+                for event in self.game_log:
+                    log_file.write(event + "\n")
+                self.game_log.clear()
+                time.sleep(2)
+
+    def log_event(self, event):
+        self.game_log.append(f"[{time.strftime('%H:%M:%S')}] {event}")
+
+    def start_game(self):
+        print("Welcome to myQuest!")
+        self.monster_thread.start()
+        self.log_thread.start()
+        while self.lives > 0 and self.current_room < self.rooms:
+            self.play_room()
+        if self.lives <= 0:
+            print("You died! Game over.")
+        elif self.current_room >= self.rooms:
+            print("You win! You completed the quest!")
+
+    def play_room(self):
+        print("\nYou are in room:", self.current_room + 1)
+        if self.monster_awake and self.monster_room == self.current_room:
+            print("Be careful! The monster is nearby!")
+            self.lives -= 1
+            self.log_event("Encounter with the monster. Lives remaining: " + str(self.lives))
+            if self.lives <= 0:
+                return
+
+        print("What will you do?")
+        print("1 - Search the dresser")
+        print("2 - Check the items")
+        print("3 - Check the basement for an exit (if there is an exit, you will win)")
+        print("4 - Shoot the monster (if you have a gun)")
+
+        choice = input("Your choice: ")
+
+        if choice == '1':
+            self.log_event("Player searched the dresser.")
+            if not self.commode_checked[self.current_room]:
+                found_item = random.choice([None, "key", "map", "nothing"])
+                if found_item == "key":
+                    print("You found a key in the dresser!")
+                    self.has_key = True
+                elif found_item:
+                    print(f"You found {found_item} in the dresser!")
+                else:
+                    print("There was nothing in the dresser.")
+                self.commode_checked[self.current_room] = True
+            else:
+                print("You have already checked the dresser in this room.")
+
+        elif choice == '2':
+            self.log_event("Player checked the items.")
+            if not self.items_checked[self.current_room]:
+                found_item = random.choice([None, "water bottle", "meat", "key and gun", "nothing"])
+                if found_item == "key":
+                    print("You found a key among the items!")
+                    self.has_key = True
+                elif found_item == "key and gun":
+                    print("You found a key and a gun among the items!")
+                    self.has_key = True
+                    self.has_gun = True
+                elif found_item:
+                    print(f"You found {found_item} among the items!")
+                else:
+                    print("There was nothing interesting among the items.")
+                self.items_checked[self.current_room] = True
+            else:
+                print("You have already checked the items in this room.")
+
+        elif choice == '3':
+            self.log_event("Player checked the basement for an exit.")
+            if self.checked_rooms[self.current_room]:
+                print("You have already checked this room for an exit.")
+            else:
+                self.checked_rooms[self.current_room] = True
+                if random.random() < 0.3:  # 30% chance to find an exit
+                    print("You found an exit!")
+                    if self.has_key:  # Check for the key
+                        print("You open the exit with the key! Congratulations!")
+                        self.current_room = self.rooms  # End the game
+                        return
+                    else:
+                        print("You do not have a key to open the exit. You need to find it!")
+                else:
+                    print("You did not find an exit. Move to the next room.")
+
+                if self.current_room < self.rooms - 1:
+                    self.current_room += 1
+                    self.log_event("Player moved to room {}".format(self.current_room + 1))
+
+        elif choice == '4':
+            if self.has_gun:
+                self.log_event("Player attempted to shoot the monster.")
+                if self.monster_awake and self.monster_room == self.current_room:
+                    print("You shot the monster! It is defeated!")
+                    self.monster_awake = False  # Monster is defeated
+                    self.log_event("The monster has been killed by the player.")
+                else:
+                    print("There is no monster to shoot!")
+            else:
+                print("You do not have a gun to shoot the monster.")
+
+        else:
+            print("Invalid choice, please try again.")
+
+
+def load_config():
+    try:
+        with open('config.json') as config_file:
+            config = json.load(config_file)
+            return {
+                'rooms': config.get('rooms', 8),
+                'monster_sleep_time': config.get('monster_sleep_time', 120),
+                'lives': config.get('lives', 5)
+            }
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {'rooms': 10, 'monster_sleep_time': 60, 'lives': 3}
+
+
+if __name__ == "__main__":
+    config = load_config()
+    game = Game(config)
+    game.start_game()
